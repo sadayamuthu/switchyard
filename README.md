@@ -1,4 +1,22 @@
+<div align="center">
+
 # switchyard
+
+<h3>The shared MCP proxy core for OpenAstra runtime tools</h3>
+
+[![Status](https://img.shields.io/badge/status-design%20stage-orange?style=flat-square)](ROADMAP.md)
+[![Go 1.26+](https://img.shields.io/badge/go-1.26+-00ADD8?style=flat-square)](https://go.dev/dl/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square)](LICENSE)
+
+---
+
+[How it works](#how-it-works) · [Thesis](THESIS.md) · [Roadmap](ROADMAP.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+
+</div>
+
+---
+
+## What is switchyard?
 
 The shared MCP proxy core for OpenAstra's runtime tools. `switchyard` is a Go
 library that sits between an AI agent and its MCP tool servers, passes every
@@ -10,6 +28,8 @@ call: observe it, delay it, block it, answer it, or rewrite the result.
 > research agenda; the shared foundation for areas VIII (AI Runtime Security)
 > and X (AI Resilience & Recovery).
 
+---
+
 ## The problem
 
 Six OpenAstra tools need to sit on the agent's tool path and act on each
@@ -18,6 +38,8 @@ framing MCP messages, matching requests to responses, handling cancellation,
 and passing through protocol features it doesn't understand. Six copies means
 six sets of bugs, and six proxies that may interfere with each other when
 stacked.
+
+---
 
 ## How it works
 
@@ -37,6 +59,8 @@ agent  ──►  switchyard proxy  ──►  MCP tool server
 4. **Traces.** Every call, decision and result is written as versioned JSONL
    events. Hops in a chain share an ID so their traces can be joined.
 
+---
+
 ## Stacking tools
 
 Each tool is its own binary built on switchyard. Tools stack by chaining:
@@ -46,6 +70,8 @@ agent → fuse → intentlock → taintline → rewind → MCP server
 ```
 
 The order of the chain is the order of the checks.
+
+---
 
 ## Built on switchyard
 
@@ -58,6 +84,8 @@ The order of the chain is the order of the checks.
 | [Rewind](https://github.com/sadayamuthu/rewind) | Records calls and the data needed to undo them |
 | [Airlock](https://github.com/sadayamuthu/airlock) | Routes risky calls into a per-call sandbox (MCP proxy mode) |
 
+---
+
 ## Planned surfaces
 
 - Go library: proxy, hook interface, sessions, event sink
@@ -67,6 +95,8 @@ The order of the chain is the order of the checks.
   debugging chains
 - stdio transport first; Streamable HTTP next
 
+---
+
 ## Design principles
 
 - **No tool-specific logic in the core.** If it only makes sense for one
@@ -75,14 +105,38 @@ The order of the chain is the order of the checks.
 - **No model in the loop.**
 - **Cheap per hop**, so stacking four tools isn't noticeable.
 
+---
+
 ## Roadmap
 
-1. JSON-RPC pass-through proxy over stdio, with the transparency test suite
-2. Hook interface for `tools/call`; sessions; JSONL traces
-3. `testkit`
-4. AgentChaos v0 as the first consumer
-5. Streamable HTTP transport; approval holds (for Rewind and Fuse)
+The plan, from the first working version to 1.0, is in [ROADMAP.md](ROADMAP.md). The reasoning behind the project, and what would make us stop, is in [THESIS.md](THESIS.md).
+
+---
+
+## Contributing
+
+Design feedback, real-world cases and fixes are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to help while the project is at the design stage, and [GOVERNANCE.md](GOVERNANCE.md) for how decisions are made.
+
+---
+
+## Security
+
+Please report vulnerabilities privately through [GitHub security advisories](https://github.com/sadayamuthu/switchyard/security/advisories/new), not in a public issue. See [SECURITY.md](SECURITY.md) for what to include and what's in scope.
+
+---
 
 ## License
 
-To be decided before the first release.
+[Apache License 2.0](LICENSE)
+
+---
+
+<div align="center">
+
+**switchyard: the shared MCP proxy core for OpenAstra runtime tools**
+
+switchyard is managed by [OpenAstra](https://openastra.org)
+
+[GitHub](https://github.com/sadayamuthu/switchyard) · [Thesis](THESIS.md) · [Roadmap](ROADMAP.md)
+
+</div>

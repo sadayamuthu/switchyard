@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using these metadata."
+type: software
+title: "switchyard: The shared MCP proxy core for OpenAstra runtime tools"
+abstract: >-
+  switchyard is a Go library that proxies Model Context Protocol traffic
+  transparently and lets tools plug in per-call hooks to observe, delay,
+  block, answer or rewrite tool calls, with per-session state and versioned
+  JSONL traces.
+authors:
+  - family-names: Sadayamuthu
+    given-names: Karthikeyan
+    orcid: "https://orcid.org/0009-0008-3539-6048"
+license: Apache-2.0
+repository-code: "https://github.com/sadayamuthu/switchyard"
+url: "https://openastra.org"
+keywords:
+  - MCP
+  - proxy
+  - AI agents
+  - Go
+  - security tooling
