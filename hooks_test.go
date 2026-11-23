@@ -614,3 +614,30 @@ func connectWithProxy(t *testing.T, server *mcp.Server, opts switchyard.Options,
 	})
 	return cs, p
 }
+
+// TestBlockInvalidErrorData checks that a Block whose error data is not
+// valid JSON answers the client with -32603 naming the hook, rather than
+// sending nothing, and that the session keeps working.
+func TestBlockInvalidErrorData(t *testing.T) {
+	var blocked atomic.Bool
+	hook := onTool("bad", "echo", func(context.Context, *switchyard.Request) switchyard.Decision {
+		if !blocked.Swap(true) {
+			return switchyard.Block(&jsonrpc.Error{Code: -32001, Message: "denied", Data: json.RawMessage(`{`)})
+		}
+		return switchyard.Continue()
+	})
+	cs := testkit.Connect(t, testkit.Server(t, echoTool()), switchyard.Options{Hooks: []switchyard.Hook{hook}})
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	_, err := cs.CallTool(ctx, echoCall("hi"))
+	if err == nil || !strings.Contains(err.Error(), "hook bad returned an invalid error") {
+		t.Fatalf("CallTool error = %v, want one containing %q", err, "hook bad returned an invalid error")
+	}
+	res, err := callEcho(t, cs, "again")
+	if err != nil {
+		t.Fatalf("second CallTool: %v", err)
+	}
+	if got := resultText(t, res); got != "again" {
+		t.Errorf("result text = %q, want %q", got, "again")
+	}
+}

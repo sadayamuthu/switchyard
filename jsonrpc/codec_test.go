@@ -149,3 +149,27 @@ func TestMarshal(t *testing.T) {
 		t.Errorf("Marshal(invalid) = %s, nil; want an error", b)
 	}
 }
+
+// TestNewResponsesNeverEmpty checks that the constructors fall back to a
+// -32603 error, built without data, rather than return an empty Raw (which
+// a Writer would send as a bare newline, leaving the client waiting).
+func TestNewResponsesNeverEmpty(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		m    *Message
+	}{
+		{"invalid result", NewResponse(json.RawMessage(`1`), json.RawMessage(`{`))},
+		{"invalid error data", NewErrorResponse(json.RawMessage(`1`), &Error{Code: -32001, Message: "x", Data: json.RawMessage(`{`)})},
+		{"nil error", NewErrorResponse(json.RawMessage(`1`), nil)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			want := `{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"internal error"}}`
+			if string(tc.m.Raw) != want {
+				t.Errorf("Raw = %s, want %s", tc.m.Raw, want)
+			}
+			if tc.m.Error == nil || tc.m.Error.Code != -32603 || tc.m.Result != nil || tc.m.Kind() != KindResponse {
+				t.Errorf("message = %+v, want a -32603 error response", tc.m)
+			}
+		})
+	}
+}

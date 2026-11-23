@@ -82,18 +82,46 @@ func (m *Message) Kind() Kind {
 // IDKey returns the raw ID bytes as a string, suitable as a map key.
 func (m *Message) IDKey() string { return string(m.ID) }
 
-// NewResponse builds a success response.
+// codeInternalError is the JSON-RPC internal error code.
+const codeInternalError = -32603
+
+// NewResponse builds a success response. Empty result is sent as null. If
+// result is not valid JSON, it builds a -32603 "internal error" response
+// instead, so Raw is never empty.
 func NewResponse(id json.RawMessage, result json.RawMessage) *Message {
 	if len(result) == 0 {
 		result = json.RawMessage("null")
 	}
-	raw, _ := Marshal(wire{JSONRPC: "2.0", ID: id, Result: result})
+	raw, err := Marshal(wire{JSONRPC: "2.0", ID: id, Result: result})
+	if err != nil {
+		return internalError(id)
+	}
 	return &Message{ID: id, Result: result, Raw: raw}
 }
 
-// NewErrorResponse builds an error response.
+// NewErrorResponse builds an error response. If e is nil or its Data is not
+// valid JSON, it builds a -32603 "internal error" response without data
+// instead, so Raw is never empty and always carries an error.
 func NewErrorResponse(id json.RawMessage, e *Error) *Message {
-	raw, _ := Marshal(wire{JSONRPC: "2.0", ID: id, Error: e})
+	if e == nil {
+		return internalError(id)
+	}
+	raw, err := Marshal(wire{JSONRPC: "2.0", ID: id, Error: e})
+	if err != nil {
+		return internalError(id)
+	}
+	return &Message{ID: id, Error: e, Raw: raw}
+}
+
+// internalError builds a -32603 "internal error" response to id, or to a null
+// id if id itself is not valid JSON.
+func internalError(id json.RawMessage) *Message {
+	e := &Error{Code: codeInternalError, Message: "internal error"}
+	raw, err := Marshal(wire{JSONRPC: "2.0", ID: id, Error: e})
+	if err != nil {
+		id = json.RawMessage("null")
+		raw, _ = Marshal(wire{JSONRPC: "2.0", ID: id, Error: e}) // always encodes
+	}
 	return &Message{ID: id, Error: e, Raw: raw}
 }
 

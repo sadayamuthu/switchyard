@@ -71,6 +71,8 @@ func (c *conn) evaluate(ctx context.Context, r *Request) Decision {
 			return final(hookError(h, "returned invalid params"))
 		case d.kind == kindRespond && len(d.result) > 0 && !json.Valid(d.result):
 			return final(hookError(h, "returned an invalid result"))
+		case d.kind == kindBlock && len(d.err.Data) > 0 && !json.Valid(d.err.Data):
+			return final(hookError(h, "returned an invalid error"))
 		case d.kind == kindContinueWith:
 			r.Params = d.params
 			rewritten = true

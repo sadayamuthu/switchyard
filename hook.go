@@ -123,7 +123,9 @@ func ContinueWith(params json.RawMessage) Decision {
 }
 
 // Block answers the request with the JSON-RPC error e without sending it
-// upstream. A nil e is replaced by a -32603 "blocked by hook" error.
+// upstream. A nil e is replaced by a -32603 "blocked by hook" error. If
+// e.Data is not empty and not valid JSON, the client instead gets a -32603
+// "hook <name> returned an invalid error" error.
 func Block(e *jsonrpc.Error) Decision {
 	if e == nil {
 		e = &jsonrpc.Error{Code: codeInternalError, Message: "blocked by hook"}
