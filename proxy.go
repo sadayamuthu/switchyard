@@ -184,6 +184,11 @@ type conn struct {
 	inflight sync.WaitGroup // tools/call requests being hooked
 	aborted  chan struct{}  // closed when Serve aborts: stop waiting for OnResponse
 
+	// Used only by the read loop: the last Request.Seq, and the last
+	// ToolCall.Seq by tool name.
+	seq      uint64
+	toolSeqs map[string]uint64
+
 	gate  sync.RWMutex // held for reading during every write
 	ended bool         // under gate: Serve is returning, write nothing
 }

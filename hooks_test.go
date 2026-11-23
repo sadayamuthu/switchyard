@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"strings"
@@ -639,5 +640,80 @@ func TestBlockInvalidErrorData(t *testing.T) {
 	}
 	if got := resultText(t, res); got != "again" {
 		t.Errorf("result text = %q, want %q", got, "again")
+	}
+}
+
+// TestSeqArrivalOrder checks that Request.Seq numbers requests session-wide
+// and ToolCall.Seq numbers each tool's calls, both in the order the client
+// sent them, even though tools/call hooks run concurrently.
+func TestSeqArrivalOrder(t *testing.T) {
+	type seen struct{ seq, toolSeq uint64 }
+	var mu sync.Mutex
+	got := map[string]seen{} // by request id
+	var calls atomic.Int32
+	h := &funcHook{name: "record", fn: func(_ context.Context, _ *switchyard.Session, r *switchyard.Request) switchyard.Decision {
+		time.Sleep(time.Duration(calls.Add(1)%3) * time.Millisecond) // shuffle the hooks' finishing order
+		var s seen
+		s.seq = r.Seq
+		if tc, ok := r.ToolCall(); ok {
+			s.toolSeq = tc.Seq
+		}
+		mu.Lock()
+		got[string(r.ID)] = s
+		mu.Unlock()
+		return switchyard.Continue()
+	}}
+	f := newFakeUpstream(t, switchyard.Options{Hooks: []switchyard.Hook{h}}, replyResult(`{"content":[]}`))
+	const n = 20
+	f.send(`{"jsonrpc":"2.0","id":0,"method":"ping"}`)
+	for i := 1; i <= n; i++ {
+		tool := []string{"a", "b"}[i%2]
+		f.send(fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":%q}}`, i, tool))
+	}
+	for range n + 1 {
+		f.recv()
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if s := got["0"]; s.seq != 1 || s.toolSeq != 0 {
+		t.Errorf("ping: Seq %d, ToolCall seen %d; want 1 and none", s.seq, s.toolSeq)
+	}
+	perTool := map[string]uint64{}
+	for i := 1; i <= n; i++ {
+		tool := []string{"a", "b"}[i%2]
+		perTool[tool]++
+		want := seen{seq: uint64(i + 1), toolSeq: perTool[tool]}
+		if s := got[fmt.Sprint(i)]; s != want {
+			t.Errorf("call %d (%s): Seq %d, ToolCall.Seq %d; want %d and %d", i, tool, s.seq, s.toolSeq, want.seq, want.toolSeq)
+		}
+	}
+}
+
+// TestSamePointerToOnRequestAndOnResponse checks the documented guarantee
+// that one *Request is passed to both hooks for a request.
+func TestSamePointerToOnRequestAndOnResponse(t *testing.T) {
+	var mu sync.Mutex
+	var onReq, onResp *switchyard.Request
+	h := &respHook{name: "ptr",
+		onReq: func(_ *switchyard.Session, r *switchyard.Request) switchyard.Decision {
+			mu.Lock()
+			onReq = r
+			mu.Unlock()
+			return switchyard.Continue()
+		},
+		onResp: func(_ *switchyard.Session, r *switchyard.Request, resp *switchyard.Response) *switchyard.Response {
+			mu.Lock()
+			onResp = r
+			mu.Unlock()
+			return resp
+		},
+	}
+	f := newFakeUpstream(t, switchyard.Options{Hooks: []switchyard.Hook{h}}, replyResult(`{}`))
+	f.send(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"a"}}`)
+	f.recv()
+	mu.Lock()
+	defer mu.Unlock()
+	if onReq == nil || onReq != onResp {
+		t.Errorf("OnRequest got %p, OnResponse got %p; want the same non-nil pointer", onReq, onResp)
 	}
 }

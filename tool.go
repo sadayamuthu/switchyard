@@ -20,6 +20,11 @@ const (
 type ToolCall struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments,omitempty"`
+	// Seq numbers the session's tools/call requests for this tool name from
+	// 1, in the order the proxy read them, like Request.Seq. The name is the
+	// one the client sent, before any hook's ContinueWith. It is 0 in a
+	// ToolCall not obtained from Request.ToolCall.
+	Seq uint64 `json:"-"`
 }
 
 // ToolCall decodes r's params as a tools/call. It returns false if r is not a
@@ -32,6 +37,7 @@ func (r *Request) ToolCall() (*ToolCall, bool) {
 	if err := json.Unmarshal(r.Params, &tc); err != nil {
 		return nil, false
 	}
+	tc.Seq = r.toolSeq
 	return &tc, true
 }
 

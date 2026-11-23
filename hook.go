@@ -7,11 +7,22 @@ import (
 	"github.com/sadayamuthu/switchyard/jsonrpc"
 )
 
-// Request is a client→server JSON-RPC request as seen by hooks.
+// Request is a client→server JSON-RPC request as seen by hooks. The same
+// *Request is passed to OnRequest and OnResponse for one request, so a hook
+// may correlate the two by pointer or by Seq.
 type Request struct {
 	ID     json.RawMessage
 	Method string
 	Params json.RawMessage
+	// Seq numbers the session's client requests from 1, in the order the
+	// proxy read them. Every request takes a Seq, even one answered without
+	// running the hooks. Hooks for tools/call run concurrently, so they may
+	// run out of Seq order: a consumer that needs call order (the nth call,
+	// or a seeded random sequence) must key on Seq, or on ToolCall's Seq,
+	// never on a counter incremented inside OnRequest.
+	Seq uint64
+
+	toolSeq uint64 // ToolCall.Seq; 0 if not a tools/call with object params
 }
 
 // Response is the response to a Request as seen by hooks: Result on success,
@@ -27,9 +38,10 @@ type Response struct {
 // OnRequest runs for every client→server request, in Options.Hooks order,
 // until a hook returns a terminal Decision (anything but Continue or
 // ContinueWith). tools/call requests are hooked on their own goroutine, so
-// OnRequest may be called concurrently; all other requests are hooked one at
-// a time in arrival order, and a slow OnRequest for them delays the client's
-// later messages. ctx is cancelled when the client cancels the request or the
+// OnRequest may be called concurrently and out of arrival order: use
+// Request.Seq or ToolCall.Seq for call order. All other requests are hooked
+// one at a time in arrival order, and a slow OnRequest for them delays the
+// client's later messages. ctx is cancelled when the client cancels the request or the
 // session ends.
 //
 // A panic in OnRequest blocks the request with a -32603 "hook <name>

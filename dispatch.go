@@ -19,7 +19,7 @@ func (c *conn) hookRequest(m *jsonrpc.Message) bool {
 	ctx, cancel := context.WithCancel(c.ctx)
 	e := &pendingEntry{
 		id:     m.ID,
-		req:    &Request{ID: m.ID, Method: m.Method, Params: m.Params},
+		req:    c.newRequest(m),
 		ctx:    ctx,
 		cancel: cancel,
 		start:  start,
@@ -48,6 +48,21 @@ func (c *conn) hookRequest(m *jsonrpc.Message) bool {
 	case <-c.ctx.Done():
 		return false
 	}
+}
+
+// newRequest returns the hooks' view of m, numbered in arrival order. It
+// runs on the read loop, before any hook for m starts.
+func (c *conn) newRequest(m *jsonrpc.Message) *Request {
+	c.seq++
+	r := &Request{ID: m.ID, Method: m.Method, Params: m.Params, Seq: c.seq}
+	if tc, ok := r.ToolCall(); ok {
+		if c.toolSeqs == nil {
+			c.toolSeqs = make(map[string]uint64)
+		}
+		c.toolSeqs[tc.Name]++
+		r.toolSeq = c.toolSeqs[tc.Name]
+	}
+	return r
 }
 
 // evaluate runs the hooks on r in order until one makes a terminal decision,
