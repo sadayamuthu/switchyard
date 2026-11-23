@@ -55,25 +55,39 @@ func (c *conn) hookRequest(m *jsonrpc.Message) bool {
 // params if any hook rewrote them, or Continue.
 func (c *conn) evaluate(ctx context.Context, r *Request) Decision {
 	rewritten := false
+	var labels []string // labels of the decisions so far, in hook order
+	// final labels d with every label gathered, joined by ",".
+	final := func(d Decision) Decision {
+		if d.label != "" {
+			labels = append(labels, d.label)
+		}
+		d.label = strings.Join(labels, ",")
+		return d
+	}
 	for _, h := range c.hooks {
 		d := callHook(ctx, h, c.session, r)
 		switch {
 		case d.kind == kindContinueWith && len(d.params) > 0 && !json.Valid(d.params):
-			return hookError(h, "returned invalid params")
+			return final(hookError(h, "returned invalid params"))
 		case d.kind == kindRespond && len(d.result) > 0 && !json.Valid(d.result):
-			return hookError(h, "returned an invalid result")
+			return final(hookError(h, "returned an invalid result"))
 		case d.kind == kindContinueWith:
 			r.Params = d.params
 			rewritten = true
+			if d.label != "" {
+				labels = append(labels, d.label)
+			}
 		case d.terminal():
 			d.by = hookName(h)
-			return d
+			return final(d)
+		case d.label != "":
+			labels = append(labels, d.label)
 		}
 	}
 	if rewritten {
-		return ContinueWith(r.Params)
+		return final(ContinueWith(r.Params))
 	}
-	return Continue()
+	return final(Continue())
 }
 
 // dispatch carries out decision d for request m, whose pending entry is e.

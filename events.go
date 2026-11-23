@@ -102,7 +102,9 @@ func ChainIDFromEnv() string {
 func (c *conn) emit(e Event) {
 	defer func() { _ = recover() }()
 	e.V = EventSchemaVersion
-	e.Time = time.Now()
+	if e.Time.IsZero() {
+		e.Time = time.Now()
+	}
 	e.Chain = c.session.chainID
 	e.Session = c.session.id
 	e.Hop = c.hop
@@ -115,6 +117,7 @@ func (c *conn) emitRequest(e *pendingEntry, d Decision) {
 		return
 	}
 	ev := Event{
+		Time:     e.start, // receipt time: a slow hook must not shift it
 		Kind:     KindRequest,
 		ID:       string(e.id),
 		Method:   e.req.Method,
@@ -128,18 +131,22 @@ func (c *conn) emitRequest(e *pendingEntry, d Decision) {
 	c.emit(ev)
 }
 
-// replyFor writes m, the answer to e's request, to the client, and records it
-// as a response event if the write was accepted.
+// replyFor writes m, the answer to e's request, to the client, recording a
+// response event just before the write (so the event is recorded by the time
+// the client sees the response) unless the session has ended.
 func (c *conn) replyFor(e *pendingEntry, m *jsonrpc.Message) {
-	if c.send(c.toClient, m) != nil || c.sink == nil || e.req == nil {
+	if c.sink == nil || e.req == nil {
+		c.reply(m)
 		return
 	}
-	c.emit(Event{
-		Kind:      KindResponse,
-		ID:        string(e.id),
-		Method:    e.req.Method,
-		Result:    m.Result,
-		Error:     m.Error,
-		LatencyMS: float64(time.Since(e.start)) / float64(time.Millisecond),
+	_ = c.sendThen(c.toClient, m, func() {
+		c.emit(Event{
+			Kind:      KindResponse,
+			ID:        string(e.id),
+			Method:    e.req.Method,
+			Result:    m.Result,
+			Error:     m.Error,
+			LatencyMS: float64(time.Since(e.start)) / float64(time.Millisecond),
+		})
 	})
 }

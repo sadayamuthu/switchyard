@@ -191,10 +191,19 @@ type conn struct {
 // send writes m unless Serve is returning, so a hook goroutine that outlives
 // Serve never touches the streams.
 func (c *conn) send(w *jsonrpc.Writer, m *jsonrpc.Message) error {
+	return c.sendThen(w, m, nil)
+}
+
+// sendThen is send that calls before, if not nil, just before writing m, so
+// an observer sees it no later than the reader of the write does.
+func (c *conn) sendThen(w *jsonrpc.Writer, m *jsonrpc.Message, before func()) error {
 	c.gate.RLock()
 	defer c.gate.RUnlock()
 	if c.ended {
 		return errSessionEnded
+	}
+	if before != nil {
+		before()
 	}
 	return w.Write(m)
 }

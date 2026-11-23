@@ -197,3 +197,76 @@ func TestChainIDFromEnv(t *testing.T) {
 		t.Errorf("ChainEnv = %q", switchyard.ChainEnv)
 	}
 }
+
+func requestEvent(t *testing.T, rec *testkit.Recorder) switchyard.Event {
+	t.Helper()
+	for _, e := range rec.Events() {
+		if e.Kind == "request" && e.Tool == "echo" {
+			return e
+		}
+	}
+	t.Fatal("no request event")
+	return switchyard.Event{}
+}
+
+func TestEventDecisionLabels(t *testing.T) {
+	contWith := json.RawMessage(`{"name":"echo","arguments":{"text":"y"}}`)
+	for _, tc := range []struct {
+		name  string
+		hooks []switchyard.Hook
+		want  string
+	}{
+		{"continue", []switchyard.Hook{onTool("a", "echo", func(context.Context, *switchyard.Request) switchyard.Decision {
+			return switchyard.Continue().Annotate("fault-x")
+		})}, "continue:fault-x"},
+		{"continue-with", []switchyard.Hook{onTool("a", "echo", func(context.Context, *switchyard.Request) switchyard.Decision {
+			return switchyard.ContinueWith(contWith).Annotate("fault-corrupt")
+		})}, "continue-with:fault-corrupt"},
+		{"two hooks", []switchyard.Hook{
+			onTool("a", "echo", func(context.Context, *switchyard.Request) switchyard.Decision {
+				return switchyard.Continue().Annotate("fault-slow")
+			}),
+			onTool("b", "echo", func(context.Context, *switchyard.Request) switchyard.Decision {
+				return switchyard.Continue().Annotate("audit")
+			}),
+		}, "continue:fault-slow,audit"},
+		{"terminal keeps earlier", []switchyard.Hook{
+			onTool("a", "echo", func(context.Context, *switchyard.Request) switchyard.Decision {
+				return switchyard.Continue().Annotate("fault-slow")
+			}),
+			onTool("b", "echo", func(context.Context, *switchyard.Request) switchyard.Decision {
+				return switchyard.BlockTool("no").Annotate("deny")
+			}),
+		}, "block-tool:fault-slow,deny"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := &testkit.Recorder{}
+			cs := testkit.Connect(t, testkit.Server(t, echoTool()), switchyard.Options{Hooks: tc.hooks, Sink: rec})
+			if _, err := cs.CallTool(context.Background(), echoCall("x")); err != nil {
+				t.Fatal(err)
+			}
+			if got := requestEvent(t, rec).Decision; got != tc.want {
+				t.Errorf("decision = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRequestEventTimeIsReceiptTime(t *testing.T) {
+	rec := &testkit.Recorder{}
+	var returned time.Time
+	h := onTool("slow", "echo", func(context.Context, *switchyard.Request) switchyard.Decision {
+		time.Sleep(200 * time.Millisecond)
+		returned = time.Now()
+		return switchyard.Continue()
+	})
+	cs := testkit.Connect(t, testkit.Server(t, echoTool()), switchyard.Options{Hooks: []switchyard.Hook{h}, Sink: rec})
+	before := time.Now()
+	if _, err := cs.CallTool(context.Background(), echoCall("x")); err != nil {
+		t.Fatal(err)
+	}
+	req := requestEvent(t, rec)
+	if req.Time.Before(before) || !req.Time.Before(returned) {
+		t.Errorf("request Time %v not in [%v, hook returned %v)", req.Time, before, returned)
+	}
+}
