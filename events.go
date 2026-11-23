@@ -19,7 +19,9 @@ const EventSchemaVersion = 1
 
 // Event kinds.
 const (
-	// KindRequest is emitted once per hooked request, after the hooks decide.
+	// KindRequest is emitted once per hooked request, after the hooks
+	// decide. It is not emitted if the request was already answered (for
+	// example with "upstream closed") or Serve has returned by then.
 	KindRequest = "request"
 	// KindResponse is emitted when a response is written to the client.
 	KindResponse = "response"
@@ -111,9 +113,21 @@ func (c *conn) emit(e Event) {
 	c.sink.Emit(e)
 }
 
-// emitRequest records the hooks' final decision d on e's request.
+// emitRequest records the hooks' final decision d on e's request, unless
+// Serve is returning or the request has already been answered (so a request
+// event never follows Serve's return, nor its own response event).
 func (c *conn) emitRequest(e *pendingEntry, d Decision) {
 	if c.sink == nil || e.req == nil {
+		return
+	}
+	c.gate.RLock()
+	defer c.gate.RUnlock()
+	if c.ended {
+		return
+	}
+	e.evMu.Lock()
+	defer e.evMu.Unlock()
+	if e.answered {
 		return
 	}
 	ev := Event{
@@ -140,6 +154,9 @@ func (c *conn) replyFor(e *pendingEntry, m *jsonrpc.Message) {
 		return
 	}
 	_ = c.sendThen(c.toClient, m, func() {
+		e.evMu.Lock()
+		defer e.evMu.Unlock()
+		e.answered = true
 		c.emit(Event{
 			Kind:      KindResponse,
 			ID:        string(e.id),

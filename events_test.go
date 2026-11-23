@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"regexp"
 	"strings"
 	"testing"
@@ -268,5 +270,57 @@ func TestRequestEventTimeIsReceiptTime(t *testing.T) {
 	req := requestEvent(t, rec)
 	if req.Time.Before(before) || !req.Time.Before(returned) {
 		t.Errorf("request Time %v not in [%v, hook returned %v)", req.Time, before, returned)
+	}
+}
+
+// TestNoEventAfterServeReturns checks that a tools/call hook that ignores its
+// context and decides after Serve has returned emits nothing, and that no
+// request event follows its own response event.
+func TestNoEventAfterServeReturns(t *testing.T) {
+	release := make(chan struct{})
+	entered := make(chan struct{})
+	h := onTool("stuck", "x", func(context.Context, *switchyard.Request) switchyard.Decision {
+		close(entered)
+		<-release
+		return switchyard.Continue()
+	})
+	rec := &testkit.Recorder{}
+	downR, downW := io.Pipe()
+	defer downW.Close()
+	upR, upW := io.Pipe()
+	served := make(chan error, 1)
+	go func() {
+		served <- switchyard.New(switchyard.Options{Hooks: []switchyard.Hook{h}, Sink: rec}).
+			Serve(t.Context(), downR, io.Discard, upR, nopWriteCloser{io.Discard})
+	}()
+	if _, err := io.WriteString(downW, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"x"}}`+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	<-entered
+	_ = upW.Close()
+	select {
+	case err := <-served:
+		if !errors.Is(err, switchyard.ErrUpstreamClosed) {
+			t.Fatalf("Serve = %v, want ErrUpstreamClosed", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not return")
+	}
+	before := rec.Events()
+	close(release)
+	time.Sleep(100 * time.Millisecond) // let the hook's goroutine finish
+	if after := rec.Events(); len(after) != len(before) {
+		t.Errorf("events after Serve returned: %+v", after[len(before):])
+	}
+	sawResponse := false
+	for _, e := range rec.Events() {
+		switch e.Kind {
+		case switchyard.KindResponse:
+			sawResponse = true
+		case switchyard.KindRequest:
+			if sawResponse {
+				t.Errorf("request event after its response event: %+v", e)
+			}
+		}
 	}
 }

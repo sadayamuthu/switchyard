@@ -26,6 +26,10 @@ type pendingEntry struct {
 	// forwarded is set, under the table's lock, just before the request is
 	// sent upstream: only then does its response run OnResponse hooks.
 	forwarded bool
+	// answered is set, under evMu, when the response event is emitted; the
+	// request event is not emitted after it.
+	evMu     sync.Mutex
+	answered bool
 }
 
 // release cancels the entry's hook context, if it has one.
