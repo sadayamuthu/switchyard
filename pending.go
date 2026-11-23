@@ -10,13 +10,19 @@ import (
 // hooked, forwarded upstream, or held by Hang.
 type pendingEntry struct {
 	id json.RawMessage
-	// req is the request as hooks saw it; nil when there are no hooks.
+	// req is the request as hooks saw it, with any rewritten params; nil
+	// when there are no hooks.
 	req *Request
-	// cancel cancels the request's hook context; nil when there are no hooks.
+	// ctx is the request's hook context and cancel cancels it; both are nil
+	// when there are no hooks.
+	ctx    context.Context
 	cancel context.CancelFunc
 	// hung is set, under the table's lock, once a hook returned Hang: the
 	// request must never be answered.
 	hung bool
+	// forwarded is set, under the table's lock, just before the request is
+	// sent upstream: only then does its response run OnResponse hooks.
+	forwarded bool
 }
 
 // release cancels the entry's hook context, if it has one.
@@ -72,11 +78,16 @@ func (t *pendingTable) removeIf(key string, e *pendingEntry) bool {
 	return true
 }
 
-// has reports whether the entry for key is still e.
-func (t *pendingTable) has(key string, e *pendingEntry) bool {
+// markForwarded marks e, if it is still the entry for key, as sent upstream.
+// It reports whether it did.
+func (t *pendingTable) markForwarded(key string, e *pendingEntry) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.entries[key] == e
+	if t.entries[key] != e {
+		return false
+	}
+	e.forwarded = true
+	return true
 }
 
 // markHung marks e, if it is still the entry for key, as never to be

@@ -126,3 +126,16 @@ func TestNewResponseNilResult(t *testing.T) {
 		t.Fatalf("not a response: %s", r.Raw)
 	}
 }
+
+// TestNewResponsesNoHTMLEscape checks that built responses keep <, > and &
+// unescaped, so an id echoed back is byte-identical to the request's.
+func TestNewResponsesNoHTMLEscape(t *testing.T) {
+	r := NewResponse(json.RawMessage(`"<&>"`), json.RawMessage(`{"t":"<b>"}`))
+	if want := `{"jsonrpc":"2.0","id":"<&>","result":{"t":"<b>"}}`; string(r.Raw) != want {
+		t.Errorf("NewResponse Raw = %s, want %s", r.Raw, want)
+	}
+	e := NewErrorResponse(json.RawMessage(`"<&>"`), &Error{Code: 1, Message: "a<b"})
+	if want := `{"jsonrpc":"2.0","id":"<&>","error":{"code":1,"message":"a<b"}}`; string(e.Raw) != want {
+		t.Errorf("NewErrorResponse Raw = %s, want %s", e.Raw, want)
+	}
+}

@@ -1,11 +1,9 @@
 package switchyard
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/sadayamuthu/switchyard/jsonrpc"
@@ -20,6 +18,7 @@ func (c *conn) hookRequest(m *jsonrpc.Message) bool {
 	e := &pendingEntry{
 		id:     m.ID,
 		req:    &Request{ID: m.ID, Method: m.Method, Params: m.Params},
+		ctx:    ctx,
 		cancel: cancel,
 	}
 	if !c.pending.add(key, e) {
@@ -79,7 +78,7 @@ func (c *conn) evaluate(ctx context.Context, r *Request) Decision {
 func (c *conn) dispatch(m *jsonrpc.Message, key string, e *pendingEntry, d Decision) {
 	switch d.kind {
 	case kindContinue, kindContinueWith:
-		if !c.pending.has(key, e) {
+		if !c.pending.markForwarded(key, e) {
 			return
 		}
 		if d.kind == kindContinueWith {
@@ -94,6 +93,76 @@ func (c *conn) dispatch(m *jsonrpc.Message, key string, e *pendingEntry, d Decis
 			c.reply(d.response(m.ID))
 		}
 	}
+}
+
+// hookedResponse runs the OnResponse hooks on m, the upstream's response to
+// the forwarded request e, and returns the message to send the client. The
+// hooks run on another goroutine so that one ignoring its context cannot
+// keep the upstream read loop, and so Serve, from returning: ok is false if
+// Serve aborted first.
+func (c *conn) hookedResponse(e *pendingEntry, m *jsonrpc.Message) (out *jsonrpc.Message, ok bool) {
+	done := make(chan *jsonrpc.Message, 1)
+	go func() { done <- c.respond(e, m) }()
+	select {
+	case out := <-done:
+		return out, true
+	case <-c.aborted:
+		return nil, false
+	}
+}
+
+// respond runs the OnResponse hooks in reverse order on m, the response to
+// e, each receiving the previous one's output. If none changed it, m itself
+// is returned, so its original bytes are forwarded. For tools/list, the
+// final tools are recorded in the session.
+func (c *conn) respond(e *pendingEntry, m *jsonrpc.Message) *jsonrpc.Message {
+	orig := &Response{Result: m.Result, Error: m.Error}
+	resp := orig
+	for i := len(c.hooks) - 1; i >= 0; i-- {
+		h := c.hooks[i]
+		next, panicked := callResponseHook(e.ctx, h, c.session, e.req, resp)
+		switch {
+		case panicked:
+			return hookError(h, "panicked").response(m.ID)
+		case next == nil || next == resp:
+			continue
+		case !validResponse(next):
+			return hookError(h, "returned an invalid result").response(m.ID)
+		}
+		resp = next
+	}
+	if e.req.Method == methodToolsList {
+		if tools, ok := resp.ToolList(); ok {
+			c.session.setTools(tools)
+		}
+	}
+	switch {
+	case resp == orig:
+		return m
+	case resp.Error != nil:
+		return jsonrpc.NewErrorResponse(m.ID, resp.Error)
+	default:
+		return jsonrpc.NewResponse(m.ID, resp.Result)
+	}
+}
+
+// validResponse reports whether r's JSON members are valid: Error.Data if r
+// is an error, otherwise Result (which may be empty, meaning null).
+func validResponse(r *Response) bool {
+	if r.Error != nil {
+		return len(r.Error.Data) == 0 || json.Valid(r.Error.Data)
+	}
+	return len(r.Result) == 0 || json.Valid(r.Result)
+}
+
+// callResponseHook calls h.OnResponse, reporting a panic.
+func callResponseHook(ctx context.Context, h Hook, s *Session, r *Request, resp *Response) (out *Response, panicked bool) {
+	defer func() {
+		if recover() != nil {
+			out, panicked = nil, true
+		}
+	}()
+	return h.OnResponse(ctx, s, r, resp), false
 }
 
 // callHook calls h.OnRequest, turning a panic into a Block.
@@ -125,80 +194,11 @@ func hookName(h Hook) (name string) {
 // params is empty, appended if absent). The new params is spliced into m.Raw,
 // so every other byte, including the id, is kept exactly: re-encoding would
 // compact and HTML-escape members, and a changed id no longer matches its
-// pending entry. Like Parse, it matches the member name case-insensitively,
-// and replaces every occurrence.
+// pending entry. Like Parse, it matches the member name case-insensitively.
 func withParams(m *jsonrpc.Message, params json.RawMessage) *jsonrpc.Message {
-	spans, members, closing, ok := paramsSpans(m.Raw)
+	raw, ok := setMember(m.Raw, "params", func(k string) bool { return strings.EqualFold(k, "params") }, params)
 	if !ok {
 		return m // unreachable: m parsed as a request
 	}
-	raw := append([]byte(nil), m.Raw...)
-	switch {
-	case len(spans) == 0 && len(params) > 0:
-		member := append([]byte(`"params":`), params...)
-		if members > 0 {
-			member = append([]byte(","), member...)
-		}
-		raw = slices.Insert(raw, closing, member...)
-	case len(params) > 0:
-		for i := len(spans) - 1; i >= 0; i-- {
-			raw = slices.Replace(raw, spans[i].valueStart, spans[i].valueEnd, params...)
-		}
-	default:
-		for i := len(spans) - 1; i >= 0; i-- {
-			start, end := spans[i].memberStart, spans[i].valueEnd
-			if spans[i].first {
-				// No comma precedes the first member; drop the one after it.
-				j := end
-				for j < len(raw) && isSpace(raw[j]) {
-					j++
-				}
-				if j < len(raw) && raw[j] == ',' {
-					end = j + 1
-				}
-			}
-			raw = slices.Delete(raw, start, end)
-		}
-	}
 	return &jsonrpc.Message{ID: m.ID, Method: m.Method, Params: params, Raw: raw}
 }
-
-// paramsSpan locates one params member in a raw JSON object. memberStart is
-// just after the preceding value (or the opening brace), so the span from
-// memberStart to valueEnd includes the separating comma unless first.
-type paramsSpan struct {
-	memberStart, valueStart, valueEnd int
-	first                             bool
-}
-
-// paramsSpans returns the spans of raw's params members, raw's member count
-// and the offset of raw's closing brace. ok is false if raw is not a JSON
-// object.
-func paramsSpans(raw []byte) (spans []paramsSpan, members, closing int, ok bool) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
-		return nil, 0, 0, false
-	}
-	for ; dec.More(); members++ {
-		start := int(dec.InputOffset())
-		t, err := dec.Token()
-		if err != nil {
-			return nil, 0, 0, false
-		}
-		key, _ := t.(string)
-		var v json.RawMessage
-		if err := dec.Decode(&v); err != nil {
-			return nil, 0, 0, false
-		}
-		end := int(dec.InputOffset())
-		if strings.EqualFold(key, "params") {
-			spans = append(spans, paramsSpan{memberStart: start, valueStart: end - len(v), valueEnd: end, first: members == 0})
-		}
-	}
-	if _, err := dec.Token(); err != nil { // the closing brace
-		return nil, 0, 0, false
-	}
-	return spans, members, int(dec.InputOffset()) - 1, true
-}
-
-func isSpace(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' }

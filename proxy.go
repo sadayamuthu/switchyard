@@ -84,6 +84,7 @@ func (p *Proxy) Serve(ctx context.Context, down io.Reader, downOut io.Writer, up
 		toClient: jsonrpc.NewWriter(downOut),
 		toServer: jsonrpc.NewWriter(upOut),
 		pending:  newPendingTable(),
+		aborted:  make(chan struct{}),
 	}
 	p.pending.Store(c.pending)
 
@@ -96,7 +97,9 @@ func (p *Proxy) Serve(ctx context.Context, down io.Reader, downOut io.Writer, up
 	closeDown, closeDownOut := closeOnce(down), closeOnce(downOut)
 	closeUp, closeUpOut := closeOnce(up), closeOnce(upOut)
 	ctxDone := ctx.Done()
+	stopResponseHooks := sync.OnceFunc(func() { close(c.aborted) })
 	abort := func() {
+		stopResponseHooks()
 		closeUpOut()
 		closeDown()
 		closeUp()
@@ -176,6 +179,7 @@ type conn struct {
 	pending  *pendingTable
 
 	inflight sync.WaitGroup // tools/call requests being hooked
+	aborted  chan struct{}  // closed when Serve aborts: stop waiting for OnResponse
 
 	gate  sync.RWMutex // held for reading during every write
 	ended bool         // under gate: Serve is returning, write nothing
@@ -282,7 +286,9 @@ func (c *conn) clientCancelled(params json.RawMessage) {
 }
 
 // upLoop forwards server→client messages, clearing pending entries for
-// responses. When it ends, for any reason, every request still pending is
+// responses. A response to a request that hooks forwarded runs the OnResponse
+// hooks first, inline, so a slow OnResponse delays the server's later
+// messages. When it ends, for any reason, every request still pending is
 // answered with an "upstream closed" error.
 func (c *conn) upLoop(r *jsonrpc.Reader) error {
 	defer c.failPending()
@@ -296,6 +302,14 @@ func (c *conn) upLoop(r *jsonrpc.Reader) error {
 		}
 		if m.Kind() == jsonrpc.KindResponse {
 			if e, ok := c.pending.remove(m.IDKey()); ok {
+				if e.forwarded {
+					out, ok := c.hookedResponse(e, m)
+					if !ok {
+						e.release()
+						return errSessionEnded
+					}
+					m = out
+				}
 				e.release()
 			}
 		}

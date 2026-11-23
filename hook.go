@@ -34,14 +34,33 @@ type Response struct {
 //
 // A panic in OnRequest blocks the request with a -32603 "hook <name>
 // panicked" error.
+//
+// OnResponse runs only for requests forwarded upstream, never for one a hook
+// answered or held with Block, BlockTool, Respond or Hang, nor for a request
+// the client cancelled before its response arrived. It runs for every hook in
+// reverse Options.Hooks order, each hook receiving the previous one's output,
+// so the hook nearest the server sees the response first. r is the request as
+// forwarded, with any ContinueWith params. Responses are hooked one at a time
+// on the proxy's upstream reader, in arrival order: a slow OnResponse delays
+// every later server→client message. ctx is the request's hook context,
+// cancelled when the session ends.
+//
+// A panic in OnResponse answers the client with a -32603 "hook <name>
+// panicked" error instead of the response, as does returning a Response
+// whose Result (or Error.Data) is not valid JSON, with "hook <name> returned
+// an invalid result". The remaining hooks do not run.
 type Hook interface {
 	// Name identifies the hook in errors and events.
 	Name() string
 	// OnRequest decides what happens to r. A hook must not modify r; it
 	// returns ContinueWith to replace the params.
 	OnRequest(ctx context.Context, s *Session, r *Request) Decision
-	// OnResponse may observe or replace resp, the response to a forwarded
-	// r. It returns resp unchanged to leave it alone.
+	// OnResponse may observe or replace resp, the response to the forwarded
+	// request r. It must not modify r or resp: to change the response it
+	// returns a new *Response, whose non-nil Error makes it an error
+	// response and whose empty Result is sent as null. Returning resp (or
+	// nil) leaves it alone; if no hook returns a new Response, the client
+	// gets the server's original bytes.
 	OnResponse(ctx context.Context, s *Session, r *Request, resp *Response) *Response
 }
 

@@ -41,6 +41,28 @@ func Server(t testing.TB, tools ...ToolSpec) *mcp.Server {
 	return s
 }
 
+// ResourceSpec describes a text resource served by ServerWithResources.
+type ResourceSpec struct {
+	URI  string
+	Text string
+}
+
+// ServerWithResources is Server that also offers resources, each read as one
+// text/plain content block holding its Text.
+func ServerWithResources(t testing.TB, resources []ResourceSpec, tools ...ToolSpec) *mcp.Server {
+	t.Helper()
+	s := Server(t, tools...)
+	for _, spec := range resources {
+		s.AddResource(&mcp.Resource{URI: spec.URI, Name: spec.URI, MIMEType: "text/plain"},
+			func(context.Context, *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+				return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{
+					{URI: spec.URI, MIMEType: "text/plain", Text: spec.Text},
+				}}, nil
+			})
+	}
+	return s
+}
+
 func toolHandler(spec ToolSpec) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := map[string]any{}

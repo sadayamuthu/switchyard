@@ -87,12 +87,20 @@ func NewResponse(id json.RawMessage, result json.RawMessage) *Message {
 	if len(result) == 0 {
 		result = json.RawMessage("null")
 	}
-	raw, _ := json.Marshal(wire{JSONRPC: "2.0", ID: id, Result: result})
-	return &Message{ID: id, Result: result, Raw: raw}
+	return &Message{ID: id, Result: result, Raw: marshal(wire{JSONRPC: "2.0", ID: id, Result: result})}
 }
 
 // NewErrorResponse builds an error response.
 func NewErrorResponse(id json.RawMessage, e *Error) *Message {
-	raw, _ := json.Marshal(wire{JSONRPC: "2.0", ID: id, Error: e})
-	return &Message{ID: id, Error: e, Raw: raw}
+	return &Message{ID: id, Error: e, Raw: marshal(wire{JSONRPC: "2.0", ID: id, Error: e})}
+}
+
+// marshal is json.Marshal without HTML escaping, so that <, > and & in an id
+// or result keep their original bytes. Members are still compacted.
+func marshal(v any) []byte {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(v) // v holds only valid JSON
+	return bytes.TrimSuffix(b.Bytes(), []byte("\n"))
 }
