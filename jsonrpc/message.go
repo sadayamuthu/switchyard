@@ -87,20 +87,26 @@ func NewResponse(id json.RawMessage, result json.RawMessage) *Message {
 	if len(result) == 0 {
 		result = json.RawMessage("null")
 	}
-	return &Message{ID: id, Result: result, Raw: marshal(wire{JSONRPC: "2.0", ID: id, Result: result})}
+	raw, _ := Marshal(wire{JSONRPC: "2.0", ID: id, Result: result})
+	return &Message{ID: id, Result: result, Raw: raw}
 }
 
 // NewErrorResponse builds an error response.
 func NewErrorResponse(id json.RawMessage, e *Error) *Message {
-	return &Message{ID: id, Error: e, Raw: marshal(wire{JSONRPC: "2.0", ID: id, Error: e})}
+	raw, _ := Marshal(wire{JSONRPC: "2.0", ID: id, Error: e})
+	return &Message{ID: id, Error: e, Raw: raw}
 }
 
-// marshal is json.Marshal without HTML escaping, so that <, > and & in an id
-// or result keep their original bytes. Members are still compacted.
-func marshal(v any) []byte {
+// Marshal is json.Marshal without HTML escaping, so that <, > and & keep
+// their bytes (a re-encoded id must stay byte-identical to the request's).
+// json.RawMessage values are still compacted, and must be valid JSON or
+// Marshal returns an error.
+func Marshal(v any) ([]byte, error) {
 	var b bytes.Buffer
 	enc := json.NewEncoder(&b)
 	enc.SetEscapeHTML(false)
-	_ = enc.Encode(v) // v holds only valid JSON
-	return bytes.TrimSuffix(b.Bytes(), []byte("\n"))
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(b.Bytes(), []byte("\n")), nil
 }

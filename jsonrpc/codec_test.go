@@ -139,3 +139,13 @@ func TestNewResponsesNoHTMLEscape(t *testing.T) {
 		t.Errorf("NewErrorResponse Raw = %s, want %s", e.Raw, want)
 	}
 }
+
+func TestMarshal(t *testing.T) {
+	b, err := Marshal(map[string]json.RawMessage{"a": json.RawMessage(`"<&>"`)})
+	if err != nil || string(b) != `{"a":"<&>"}` {
+		t.Errorf("Marshal = %s, %v; want {\"a\":\"<&>\"}, nil", b, err)
+	}
+	if b, err := Marshal(json.RawMessage(`{`)); err == nil {
+		t.Errorf("Marshal(invalid) = %s, nil; want an error", b)
+	}
+}

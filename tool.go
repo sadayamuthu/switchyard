@@ -3,7 +3,11 @@ package switchyard
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
+	"slices"
 	"strings"
+
+	"github.com/sadayamuthu/switchyard/jsonrpc"
 )
 
 // MCP methods with typed helpers.
@@ -69,24 +73,44 @@ func (r *Response) ToolResult() (*ToolResult, bool) {
 }
 
 // Marshal encodes tr as a tools/call result: content, isError if true, and
-// the members in Rest (other than content and isError). Nil Content is
-// encoded as []. Like every re-encoding switchyard does, it does not
-// HTML-escape <, > and &.
+// the members in Rest (other than content and isError) in key order. Nil
+// Content is encoded as [], and an empty value as null. Content and Rest
+// values are written as their raw bytes, unchanged and not HTML-escaped; if one is not valid JSON neither is
+// the result, and the proxy answers the client with a -32603 error naming
+// the hook that returned it.
 func (tr *ToolResult) Marshal() json.RawMessage {
-	obj := make(map[string]json.RawMessage, len(tr.Rest)+2)
-	for k, v := range tr.Rest {
-		obj[k] = v
+	var b bytes.Buffer
+	b.WriteString(`{"content":[`)
+	for i, c := range tr.Content {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		writeRaw(&b, c)
 	}
-	delete(obj, "isError")
-	content := tr.Content
-	if content == nil {
-		content = []json.RawMessage{}
-	}
-	obj["content"] = marshalJSON(content)
+	b.WriteByte(']')
 	if tr.IsError {
-		obj["isError"] = json.RawMessage("true")
+		b.WriteString(`,"isError":true`)
 	}
-	return marshalJSON(obj)
+	for _, k := range slices.Sorted(maps.Keys(tr.Rest)) {
+		if k == "content" || k == "isError" {
+			continue
+		}
+		b.WriteByte(',')
+		b.Write(marshalString(k))
+		b.WriteByte(':')
+		writeRaw(&b, tr.Rest[k])
+	}
+	b.WriteByte('}')
+	return b.Bytes()
+}
+
+// writeRaw writes v's bytes, or null if v is empty (as encoding/json does).
+func writeRaw(b *bytes.Buffer, v json.RawMessage) {
+	if len(v) == 0 {
+		b.WriteString("null")
+		return
+	}
+	b.Write(v)
 }
 
 // ToolInfo is one tool in a tools/list result: its name and its full JSON
@@ -124,8 +148,10 @@ func (r *Response) ToolList() ([]ToolInfo, bool) {
 
 // ToolListResult returns the tools/list result orig with its tools member
 // replaced by tools; every other byte of orig, such as nextCursor, is kept.
-// Each tool is written as its Raw, or as {"name":Name} if Raw is empty. If
-// orig is not a JSON object, the result is {"tools":[...]}.
+// Each tool is written as its raw bytes, or as {"name":Name} if Raw is empty;
+// an invalid Raw makes the result invalid, which the proxy reports as a
+// -32603 error naming the hook. If orig is not a JSON object, the result is
+// {"tools":[...]}.
 func ToolListResult(orig json.RawMessage, tools []ToolInfo) json.RawMessage {
 	var arr bytes.Buffer
 	arr.WriteByte('[')
@@ -135,9 +161,7 @@ func ToolListResult(orig json.RawMessage, tools []ToolInfo) json.RawMessage {
 		}
 		raw := t.Raw
 		if len(raw) == 0 {
-			raw = marshalJSON(struct {
-				Name string `json:"name"`
-			}{t.Name})
+			raw = append(append([]byte(`{"name":`), marshalString(t.Name)...), '}')
 		}
 		arr.Write(raw)
 	}
@@ -149,14 +173,10 @@ func ToolListResult(orig json.RawMessage, tools []ToolInfo) json.RawMessage {
 	return out
 }
 
-// marshalJSON is json.Marshal without HTML escaping, so <, > and & keep their
-// bytes. v must hold only valid JSON.
-func marshalJSON(v any) json.RawMessage {
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	_ = enc.Encode(v)
-	return bytes.TrimSuffix(b.Bytes(), []byte("\n"))
+// marshalString encodes s as a JSON string without HTML escaping.
+func marshalString(s string) []byte {
+	b, _ := jsonrpc.Marshal(s) // a string always encodes
+	return b
 }
 
 type textContent struct {
@@ -166,8 +186,9 @@ type textContent struct {
 
 // toolErrorResult returns {"content":[{"type":"text","text":message}],"isError":true}.
 func toolErrorResult(message string) json.RawMessage {
-	return marshalJSON(struct {
+	b, _ := jsonrpc.Marshal(struct {
 		Content []textContent `json:"content"`
 		IsError bool          `json:"isError"`
-	}{[]textContent{{Type: "text", Text: message}}, true})
+	}{[]textContent{{Type: "text", Text: message}}, true}) // strings always encode
+	return b
 }

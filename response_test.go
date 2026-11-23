@@ -498,3 +498,68 @@ func TestStuckOnResponseDoesNotBlockCancel(t *testing.T) {
 		t.Fatal("Serve did not return after cancel while OnResponse was stuck")
 	}
 }
+
+// TestOnResponseInvalidToolResult checks that a hook building a ToolResult
+// with an invalid content block is reported to the client, not hidden.
+func TestOnResponseInvalidToolResult(t *testing.T) {
+	var broke atomic.Bool
+	h := &respHook{name: "bad", onResp: func(_ *switchyard.Session, _ *switchyard.Request, resp *switchyard.Response) *switchyard.Response {
+		if broke.Swap(true) {
+			return resp
+		}
+		tr, ok := resp.ToolResult()
+		if !ok {
+			t.Errorf("ToolResult() not ok for %s", resp.Result)
+			return resp
+		}
+		tr.Content[0] = json.RawMessage(`{"type":"text","text":`)
+		return &switchyard.Response{Result: tr.Marshal()}
+	}}
+	f := newFakeUpstream(t, switchyard.Options{Hooks: []switchyard.Hook{h}}, replyResult(`{"content":[{"type":"text","text":"hi"}]}`))
+	f.send(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"x"}}`)
+	if got, want := f.recv(), `{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"hook bad returned an invalid result"}}`; got != want {
+		t.Errorf("client got %s, want %s", got, want)
+	}
+	f.send(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"x"}}`)
+	if got, want := f.recv(), `{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"hi"}]}}`; got != want {
+		t.Errorf("client got %s, want %s", got, want)
+	}
+	waitFor(t, time.Second, "pending count to reach 0", func() bool { return switchyard.PendingLen(f.proxy) == 0 })
+}
+
+// TestOnResponseExplicitNull checks that a hook may still replace a result
+// with null, written either as null or as an empty Result.
+func TestOnResponseExplicitNull(t *testing.T) {
+	for _, result := range []json.RawMessage{json.RawMessage(`null`), nil} {
+		h := &respHook{name: "null", onResp: func(_ *switchyard.Session, _ *switchyard.Request, _ *switchyard.Response) *switchyard.Response {
+			return &switchyard.Response{Result: result}
+		}}
+		f := newFakeUpstream(t, switchyard.Options{Hooks: []switchyard.Hook{h}}, replyResult(`{}`))
+		f.send(`{"jsonrpc":"2.0","id":1,"method":"ping"}`)
+		if got, want := f.recv(), `{"jsonrpc":"2.0","id":1,"result":null}`; got != want {
+			t.Errorf("Result %q: client got %s, want %s", result, got, want)
+		}
+	}
+}
+
+// TestHelpersKeepInvalidJSONVisible checks that invalid raw JSON given to
+// the helpers yields invalid output (which the proxy reports as a hook
+// error), never an empty result that would be sent as null.
+func TestHelpersKeepInvalidJSONVisible(t *testing.T) {
+	for name, tr := range map[string]*switchyard.ToolResult{
+		"content": {Content: []json.RawMessage{json.RawMessage(`{`)}},
+		"rest":    {Content: []json.RawMessage{}, Rest: map[string]json.RawMessage{"x": json.RawMessage(`nope`)}},
+	} {
+		if out := tr.Marshal(); len(out) == 0 || json.Valid(out) {
+			t.Errorf("%s: Marshal() = %q, want non-empty invalid JSON", name, out)
+		}
+	}
+	empty := &switchyard.ToolResult{Content: []json.RawMessage{nil}, Rest: map[string]json.RawMessage{"x": nil}}
+	if out := string(empty.Marshal()); out != `{"content":[null],"x":null}` {
+		t.Errorf(`Marshal() with empty values = %s, want {"content":[null],"x":null}`, out)
+	}
+	out := switchyard.ToolListResult(json.RawMessage(`{"tools":[]}`), []switchyard.ToolInfo{{Name: "a", Raw: json.RawMessage(`{`)}})
+	if len(out) == 0 || json.Valid(out) {
+		t.Errorf("ToolListResult = %q, want non-empty invalid JSON", out)
+	}
+}
