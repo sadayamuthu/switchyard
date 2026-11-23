@@ -47,6 +47,10 @@ type Response struct {
 // A panic in OnRequest blocks the request with a -32603 "hook <name>
 // panicked" error.
 //
+// When the proxy has hooks, a client request reusing the id of a request
+// still pending is not hooked or forwarded: it is answered with a -32600
+// "duplicate request id" error, and the pending request is unaffected.
+//
 // OnResponse runs only for requests forwarded upstream, never for one a hook
 // answered or held with Block, BlockTool, Respond or Hang, nor for a request
 // the client cancelled before its response arrived. It runs for every hook in

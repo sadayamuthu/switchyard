@@ -347,6 +347,14 @@ func (c *conn) failPending() {
 	}
 }
 
+// codeInvalidRequest is the JSON-RPC invalid request error code.
+const codeInvalidRequest = -32600
+
+// duplicateID answers a request whose id is already pending.
+func duplicateID(id []byte) *jsonrpc.Message {
+	return jsonrpc.NewErrorResponse(id, &jsonrpc.Error{Code: codeInvalidRequest, Message: "duplicate request id"})
+}
+
 func upstreamClosed(id []byte) *jsonrpc.Message {
 	return jsonrpc.NewErrorResponse(id, &jsonrpc.Error{Code: codeInternalError, Message: "upstream closed"})
 }

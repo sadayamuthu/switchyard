@@ -51,7 +51,8 @@ func newPendingTable() *pendingTable {
 	return &pendingTable{entries: make(map[string]*pendingEntry)}
 }
 
-// add records a request. It returns false if the table is closed.
+// add records a request, replacing any pending request with the same key.
+// It returns false if the table is closed.
 func (t *pendingTable) add(key string, e *pendingEntry) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -60,6 +61,21 @@ func (t *pendingTable) add(key string, e *pendingEntry) bool {
 	}
 	t.entries[key] = e
 	return true
+}
+
+// addNew is add that leaves a pending request with the same key in place:
+// then it records nothing and reports dup.
+func (t *pendingTable) addNew(key string, e *pendingEntry) (ok, dup bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.closed {
+		return false, false
+	}
+	if _, exists := t.entries[key]; exists {
+		return false, true
+	}
+	t.entries[key] = e
+	return true, false
 }
 
 // remove deletes and returns the entry for key, if present.

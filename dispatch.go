@@ -11,8 +11,10 @@ import (
 )
 
 // hookRequest records m as pending and runs the hooks on it: on a new
-// goroutine for tools/call, otherwise before returning. It returns false if
-// the session ended while a synchronous hook was still running.
+// goroutine for tools/call, otherwise before returning. A request reusing the
+// id of one still pending is answered with a -32600 "duplicate request id"
+// error instead, leaving the pending one alone. It returns false if the
+// session ended while a synchronous hook was still running.
 func (c *conn) hookRequest(m *jsonrpc.Message) bool {
 	key := m.IDKey()
 	start := time.Now()
@@ -24,9 +26,13 @@ func (c *conn) hookRequest(m *jsonrpc.Message) bool {
 		cancel: cancel,
 		start:  start,
 	}
-	if !c.pending.add(key, e) {
+	if ok, dup := c.pending.addNew(key, e); !ok {
 		cancel()
-		c.replyFor(e, upstreamClosed(m.ID))
+		if dup {
+			c.replyFor(e, duplicateID(m.ID))
+		} else {
+			c.replyFor(e, upstreamClosed(m.ID))
+		}
 		return true
 	}
 	if m.Method == methodToolsCall {

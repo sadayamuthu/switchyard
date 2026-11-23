@@ -717,3 +717,39 @@ func TestSamePointerToOnRequestAndOnResponse(t *testing.T) {
 		t.Errorf("OnRequest got %p, OnResponse got %p; want the same non-nil pointer", onReq, onResp)
 	}
 }
+
+// TestDuplicatePendingIDRejected checks that, with hooks, a request reusing
+// the id of one still pending is answered with -32600 and not forwarded,
+// and the original request is unaffected.
+func TestDuplicatePendingIDRejected(t *testing.T) {
+	release := make(chan struct{})
+	var hooked atomic.Int32
+	h := &funcHook{name: "hold", fn: func(_ context.Context, _ *switchyard.Session, r *switchyard.Request) switchyard.Decision {
+		hooked.Add(1)
+		if r.Method == "tools/call" {
+			<-release
+		}
+		return switchyard.Continue()
+	}}
+	f := newFakeUpstream(t, switchyard.Options{Hooks: []switchyard.Hook{h}}, replyResult(`{"ok":true}`))
+	f.send(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"a"}}`)
+	waitFor(t, time.Second, "the first request to be hooked", func() bool { return hooked.Load() == 1 })
+	f.send(`{"jsonrpc":"2.0","id":1,"method":"ping"}`)
+	const dup = `{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"duplicate request id"}}`
+	if got := f.recv(); got != dup {
+		t.Errorf("client got %s, want %s", got, dup)
+	}
+	close(release)
+	if got, want := f.recv(), `{"jsonrpc":"2.0","id":1,"result":{"ok":true}}`; got != want {
+		t.Errorf("client got %s, want %s", got, want)
+	}
+	if got := <-f.gotUp; !strings.Contains(got, "tools/call") {
+		t.Errorf("upstream got %s, want the original tools/call", got)
+	}
+	if n := len(f.gotUp); n != 0 {
+		t.Errorf("upstream got %d more messages, want none", n)
+	}
+	if n := hooked.Load(); n != 1 {
+		t.Errorf("hooks ran %d times, want 1 (not for the duplicate)", n)
+	}
+}
