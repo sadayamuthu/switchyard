@@ -50,6 +50,7 @@ type wire struct {
 }
 
 // Parse never fails; unparseable input yields a KindOther message.
+// Raw aliases the input slice; callers must not reuse the buffer.
 func Parse(line []byte) *Message {
 	m := &Message{Raw: line}
 	trimmed := bytes.TrimSpace(line)
@@ -83,6 +84,9 @@ func (m *Message) IDKey() string { return string(m.ID) }
 
 // NewResponse builds a success response.
 func NewResponse(id json.RawMessage, result json.RawMessage) *Message {
+	if len(result) == 0 {
+		result = json.RawMessage("null")
+	}
 	raw, _ := json.Marshal(wire{JSONRPC: "2.0", ID: id, Result: result})
 	return &Message{ID: id, Result: result, Raw: raw}
 }

@@ -116,3 +116,13 @@ func TestNewResponses(t *testing.T) {
 		t.Fatalf("missing jsonrpc: %s", e.Raw)
 	}
 }
+
+func TestNewResponseNilResult(t *testing.T) {
+	r := NewResponse(json.RawMessage(`1`), nil)
+	if !strings.Contains(string(r.Raw), `"result":null`) {
+		t.Fatalf("missing result:null: %s", r.Raw)
+	}
+	if r.Kind() != KindResponse || Parse(r.Raw).Kind() != KindResponse {
+		t.Fatalf("not a response: %s", r.Raw)
+	}
+}
