@@ -20,10 +20,10 @@ const upstreamGrace = 2 * time.Second
 // RunCommand starts argv as the upstream server and Serves one session
 // between the client (down and downOut) and the upstream's stdin and stdout.
 // The upstream's stderr is the current process's, and its environment is the
-// current process's with ChainEnv set to the proxy's chain ID. If the proxy
-// has no Options.ChainID, RunCommand sets it to ChainIDFromEnv(), so the
-// upstream and this proxy's events use the same ID. RunCommand must not be
-// called while p is serving another session.
+// current process's with ChainEnv set to the proxy's chain ID (Options.ChainID,
+// or ChainIDFromEnv() as New defaulted it), so the upstream and this proxy's
+// events use the same ID. RunCommand must not be called while p is serving
+// another session.
 //
 // Serve's rules apply, with these additions. When down reaches EOF the
 // upstream's stdin is closed; if the upstream has not exited 2s later it is
@@ -39,9 +39,6 @@ const upstreamGrace = 2 * time.Second
 func RunCommand(ctx context.Context, p *Proxy, argv []string, down io.Reader, downOut io.Writer) error {
 	if len(argv) == 0 {
 		return errors.New("switchyard: no upstream command")
-	}
-	if p.opts.ChainID == "" {
-		p.opts.ChainID = ChainIDFromEnv()
 	}
 
 	// Pipes made here, rather than by exec.Cmd, are not closed by cmd.Wait,

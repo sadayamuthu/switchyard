@@ -30,7 +30,9 @@ type Options struct {
 	// Sink receives an event for every hooked request and its response; nil
 	// disables them. Nothing is emitted when there are no Hooks.
 	Sink EventSink
-	// ChainID is shared by every hop proxying the same session.
+	// ChainID is shared by every hop proxying the same session. If empty,
+	// New sets it to ChainIDFromEnv(), so one Proxy keeps one chain ID for
+	// all its sessions.
 	ChainID string
 }
 
@@ -43,6 +45,9 @@ type Proxy struct {
 // New returns a Proxy configured by opts.
 func New(opts Options) *Proxy {
 	opts.Hooks = append([]Hook(nil), opts.Hooks...)
+	if opts.ChainID == "" {
+		opts.ChainID = ChainIDFromEnv()
+	}
 	return &Proxy{opts: opts}
 }
 

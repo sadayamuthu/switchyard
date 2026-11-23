@@ -324,3 +324,39 @@ func TestNoEventAfterServeReturns(t *testing.T) {
 		}
 	}
 }
+
+// TestChainIDDefaulted checks that a proxy with no Options.ChainID uses
+// ChainIDFromEnv, generating one 16-hex-character ID kept for every session.
+func TestChainIDDefaulted(t *testing.T) {
+	t.Setenv(switchyard.ChainEnv, "")
+	rec := &testkit.Recorder{}
+	opts := switchyard.Options{Hooks: []switchyard.Hook{&funcHook{name: "noop", fn: switchyard.Base{}.OnRequest}}, Sink: rec}
+	cs := testkit.Connect(t, testkit.Server(t, echoTool()), opts)
+	if _, err := cs.CallTool(context.Background(), echoCall("x")); err != nil {
+		t.Fatal(err)
+	}
+	chain := requestEvent(t, rec).Chain
+	if !regexp.MustCompile(`^[0-9a-f]{16}$`).MatchString(chain) {
+		t.Errorf("chain = %q, want 16 hex characters", chain)
+	}
+
+	// One proxy keeps its chain ID across sessions.
+	rec2 := &testkit.Recorder{}
+	opts.Sink = rec2
+	p := switchyard.New(opts)
+	for range 2 {
+		in := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}` + "\n")
+		if err := p.Serve(t.Context(), in, io.Discard, strings.NewReader(""), io.Discard); err != nil && !errors.Is(err, switchyard.ErrUpstreamClosed) {
+			t.Fatalf("Serve: %v", err)
+		}
+	}
+	evs := rec2.Events()
+	if len(evs) < 2 {
+		t.Fatalf("got %d events, want one per session at least: %+v", len(evs), evs)
+	}
+	for _, e := range evs {
+		if e.Chain != evs[0].Chain || !regexp.MustCompile(`^[0-9a-f]{16}$`).MatchString(e.Chain) {
+			t.Errorf("event chain %q, want one 16-hex ID %q for the proxy", e.Chain, evs[0].Chain)
+		}
+	}
+}
