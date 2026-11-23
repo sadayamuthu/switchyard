@@ -381,6 +381,17 @@ func TestRequestToolCall(t *testing.T) {
 	if _, ok := (&switchyard.Request{Method: "tools/list"}).ToolCall(); ok {
 		t.Error("ToolCall() ok for tools/list, want false")
 	}
+	for _, params := range []string{``, `null`, ` null `, `[]`, `"x"`, `1`, `{`} {
+		if tc, ok := (&switchyard.Request{Method: "tools/call", Params: json.RawMessage(params)}).ToolCall(); ok {
+			t.Errorf("ToolCall() with params %q = %+v, true; want false", params, tc)
+		}
+	}
+	if _, ok := (&switchyard.Request{Method: "Tools/Call", Params: json.RawMessage(`{"name":"echo"}`)}).ToolCall(); ok {
+		t.Error("ToolCall() ok for method Tools/Call, want false: method names are case-sensitive")
+	}
+	if _, ok := (&switchyard.Request{Method: "tools/call", Params: json.RawMessage(` {} `)}).ToolCall(); !ok {
+		t.Error("ToolCall() not ok for params {}, want true")
+	}
 }
 
 // TestSessionEndWithStuckSyncHook checks that Serve returns when the session

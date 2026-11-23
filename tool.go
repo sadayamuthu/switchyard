@@ -27,10 +27,14 @@ type ToolCall struct {
 	Seq uint64 `json:"-"`
 }
 
-// ToolCall decodes r's params as a tools/call. It returns false if r is not a
-// tools/call request or its params are not a JSON object.
+// ToolCall decodes r's params as a tools/call. It returns false if r's
+// method is not exactly "tools/call" (MCP method names are case-sensitive)
+// or its params are not a JSON object.
 func (r *Request) ToolCall() (*ToolCall, bool) {
 	if r.Method != methodToolsCall {
+		return nil, false
+	}
+	if p := bytes.TrimLeft(r.Params, " \t\r\n"); len(p) == 0 || p[0] != '{' {
 		return nil, false
 	}
 	var tc ToolCall
