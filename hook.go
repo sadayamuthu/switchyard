@@ -92,6 +92,11 @@ func Continue() Decision { return Decision{} }
 
 // ContinueWith replaces the request's params and passes it on to the next
 // hook, or upstream after the last. Empty params removes the params member.
+//
+// params replaces the old params wholesale, including params._meta (which
+// carries, for example, the client's progressToken): a hook that needs _meta
+// kept must copy it into params. Every other member of the request is
+// forwarded byte-for-byte.
 func ContinueWith(params json.RawMessage) Decision {
 	return Decision{kind: kindContinueWith, params: params}
 }

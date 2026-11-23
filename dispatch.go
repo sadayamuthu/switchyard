@@ -1,9 +1,12 @@
 package switchyard
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/sadayamuthu/switchyard/jsonrpc"
 )
@@ -119,20 +122,83 @@ func hookName(h Hook) (name string) {
 }
 
 // withParams returns m with its params member replaced by params (removed if
-// params is empty). Other members are kept; member order is not.
+// params is empty, appended if absent). The new params is spliced into m.Raw,
+// so every other byte, including the id, is kept exactly: re-encoding would
+// compact and HTML-escape members, and a changed id no longer matches its
+// pending entry. Like Parse, it matches the member name case-insensitively,
+// and replaces every occurrence.
 func withParams(m *jsonrpc.Message, params json.RawMessage) *jsonrpc.Message {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(m.Raw, &obj); err != nil {
+	spans, members, closing, ok := paramsSpans(m.Raw)
+	if !ok {
 		return m // unreachable: m parsed as a request
 	}
-	if len(params) == 0 {
-		delete(obj, "params")
-	} else {
-		obj["params"] = params
-	}
-	raw, err := json.Marshal(obj)
-	if err != nil {
-		return m // unreachable: every member is valid JSON
+	raw := append([]byte(nil), m.Raw...)
+	switch {
+	case len(spans) == 0 && len(params) > 0:
+		member := append([]byte(`"params":`), params...)
+		if members > 0 {
+			member = append([]byte(","), member...)
+		}
+		raw = slices.Insert(raw, closing, member...)
+	case len(params) > 0:
+		for i := len(spans) - 1; i >= 0; i-- {
+			raw = slices.Replace(raw, spans[i].valueStart, spans[i].valueEnd, params...)
+		}
+	default:
+		for i := len(spans) - 1; i >= 0; i-- {
+			start, end := spans[i].memberStart, spans[i].valueEnd
+			if spans[i].first {
+				// No comma precedes the first member; drop the one after it.
+				j := end
+				for j < len(raw) && isSpace(raw[j]) {
+					j++
+				}
+				if j < len(raw) && raw[j] == ',' {
+					end = j + 1
+				}
+			}
+			raw = slices.Delete(raw, start, end)
+		}
 	}
 	return &jsonrpc.Message{ID: m.ID, Method: m.Method, Params: params, Raw: raw}
 }
+
+// paramsSpan locates one params member in a raw JSON object. memberStart is
+// just after the preceding value (or the opening brace), so the span from
+// memberStart to valueEnd includes the separating comma unless first.
+type paramsSpan struct {
+	memberStart, valueStart, valueEnd int
+	first                             bool
+}
+
+// paramsSpans returns the spans of raw's params members, raw's member count
+// and the offset of raw's closing brace. ok is false if raw is not a JSON
+// object.
+func paramsSpans(raw []byte) (spans []paramsSpan, members, closing int, ok bool) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil, 0, 0, false
+	}
+	for ; dec.More(); members++ {
+		start := int(dec.InputOffset())
+		t, err := dec.Token()
+		if err != nil {
+			return nil, 0, 0, false
+		}
+		key, _ := t.(string)
+		var v json.RawMessage
+		if err := dec.Decode(&v); err != nil {
+			return nil, 0, 0, false
+		}
+		end := int(dec.InputOffset())
+		if strings.EqualFold(key, "params") {
+			spans = append(spans, paramsSpan{memberStart: start, valueStart: end - len(v), valueEnd: end, first: members == 0})
+		}
+	}
+	if _, err := dec.Token(); err != nil { // the closing brace
+		return nil, 0, 0, false
+	}
+	return spans, members, int(dec.InputOffset()) - 1, true
+}
+
+func isSpace(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' }
