@@ -587,6 +587,12 @@ func waitFor(t *testing.T, d time.Duration, what string, cond func() bool) {
 // returning the proxy so tests can inspect its pending table.
 func connectWithProxy(t *testing.T, server *mcp.Server, opts switchyard.Options, sessOpts *mcp.ClientSessionOptions) (*mcp.ClientSession, *switchyard.Proxy) {
 	t.Helper()
+	return connectWithProxyClient(t, server, opts, nil, sessOpts)
+}
+
+// connectWithProxyClient is connectWithProxy with SDK client options.
+func connectWithProxyClient(t *testing.T, server *mcp.Server, opts switchyard.Options, clientOpts *mcp.ClientOptions, sessOpts *mcp.ClientSessionOptions) (*mcp.ClientSession, *switchyard.Proxy) {
+	t.Helper()
 	c2pR, c2pW := io.Pipe()
 	p2cR, p2cW := io.Pipe()
 	p2sR, p2sW := io.Pipe()
@@ -603,7 +609,7 @@ func connectWithProxy(t *testing.T, server *mcp.Server, opts switchyard.Options,
 		_ = p2cW.Close()
 		done <- err
 	}()
-	cs, err := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "v0"}, nil).Connect(context.Background(), &mcp.IOTransport{Reader: p2cR, Writer: c2pW}, sessOpts)
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "v0"}, clientOpts).Connect(context.Background(), &mcp.IOTransport{Reader: p2cR, Writer: c2pW}, sessOpts)
 	if err != nil {
 		cancel()
 		t.Fatalf("client Connect: %v", err)

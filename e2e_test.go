@@ -117,12 +117,16 @@ func readTrace(t *testing.T, path string) []switchyard.Event {
 	}
 	var events []switchyard.Event
 	sc := bufio.NewScanner(bytes.NewReader(data))
+	sc.Buffer(nil, len(data)+1) // a line may be as long as the file
 	for sc.Scan() {
 		var e switchyard.Event
 		if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
 			t.Fatalf("trace %s: bad line %q: %v", path, sc.Text(), err)
 		}
 		events = append(events, e)
+	}
+	if err := sc.Err(); err != nil {
+		t.Fatalf("reading trace %s: %v", path, err)
 	}
 	if len(events) == 0 {
 		t.Fatalf("trace %s is empty", path)
@@ -279,5 +283,23 @@ func TestSwitchyardBinaryExitsWhenUpstreamExits(t *testing.T) {
 		_ = cmd.Process.Kill()
 		<-done
 		t.Fatal("switchyard did not exit within 3s of its upstream exiting")
+	}
+}
+
+// TestReadTraceLongLine checks that readTrace reads an event line longer
+// than bufio.Scanner's default 64KB limit in full.
+func TestReadTraceLongLine(t *testing.T) {
+	big := `"` + strings.Repeat("x", 100_000) + `"`
+	path := filepath.Join(t.TempDir(), "trace.jsonl")
+	var buf bytes.Buffer
+	sink := switchyard.NewJSONLSink(&buf)
+	sink.Emit(switchyard.Event{V: 1, Kind: switchyard.KindRequest, Method: "a", Params: json.RawMessage(big)})
+	sink.Emit(switchyard.Event{V: 1, Kind: switchyard.KindResponse, Method: "b"})
+	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	events := readTrace(t, path)
+	if len(events) != 2 || string(events[0].Params) != big || events[1].Method != "b" {
+		t.Errorf("readTrace got %d events, want both with the long params intact", len(events))
 	}
 }

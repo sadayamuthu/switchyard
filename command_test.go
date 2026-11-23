@@ -4,7 +4,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -93,7 +97,23 @@ func TestRunCommandReturnsWhenUpstreamExitsDespiteStuckDown(t *testing.T) {
 func TestRunCommandReturnsWhenUpstreamExitsLeavingStdoutOpen(t *testing.T) {
 	down := newStuckReader(t, "")
 	p := switchyard.New(switchyard.Options{Name: "test"})
-	argv := []string{"sh", "-c", "sleep 5 </dev/null 2>/dev/null & exit 0"}
+	// The background sleep holds the upstream's stdout open after it exits;
+	// it records its pid so that cleanup can kill it.
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	t.Cleanup(func() {
+		b, err := os.ReadFile(pidFile)
+		if err != nil {
+			t.Errorf("reading the background pid: %v", err)
+			return
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+		if err != nil {
+			t.Errorf("bad background pid %q: %v", b, err)
+			return
+		}
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+	})
+	argv := []string{"sh", "-c", `sleep 5 </dev/null 2>/dev/null & echo $! >"$1"; exit 0`, "sh", pidFile}
 	_, err := runCommand(t, t.Context(), p, argv, down, io.Discard, 4*time.Second)
 	if !errors.Is(err, switchyard.ErrUpstreamClosed) {
 		t.Errorf("RunCommand error = %v, want ErrUpstreamClosed", err)

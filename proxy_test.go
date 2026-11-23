@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -238,3 +239,59 @@ func TestServeReturnsErrUpstreamClosed(t *testing.T) {
 type nopWriteCloser struct{ io.Writer }
 
 func (nopWriteCloser) Close() error { return nil }
+
+// TestPassThroughServerToClientRequest checks that a server→client request
+// (sampling/createMessage) and the client's response to it round-trip
+// through the proxy, with and without a hook installed.
+func TestPassThroughServerToClientRequest(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		hooks []switchyard.Hook
+	}{
+		{"no hooks", nil},
+		{"hook", []switchyard.Hook{&funcHook{name: "noop", fn: switchyard.Base{}.OnRequest}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := testkit.Server(t)
+			server.AddTool(&mcp.Tool{Name: "sample", InputSchema: map[string]any{"type": "object"}},
+				func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+					res, err := req.Session.CreateMessage(ctx, &mcp.CreateMessageParams{
+						MaxTokens: 10,
+						Messages:  []*mcp.SamplingMessage{{Role: "user", Content: &mcp.TextContent{Text: "q"}}},
+					})
+					if err != nil {
+						return nil, err
+					}
+					text, _ := res.Content.(*mcp.TextContent)
+					if text == nil {
+						return nil, fmt.Errorf("sampling content %T, want text", res.Content)
+					}
+					return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: res.Model + ": " + text.Text}}}, nil
+				})
+			clientOpts := &mcp.ClientOptions{
+				CreateMessageHandler: func(_ context.Context, req *mcp.CreateMessageRequest) (*mcp.CreateMessageResult, error) {
+					in, _ := req.Params.Messages[0].Content.(*mcp.TextContent)
+					if in == nil {
+						return nil, fmt.Errorf("sampling message content %T, want text", req.Params.Messages[0].Content)
+					}
+					return &mcp.CreateMessageResult{Model: "m", Role: "assistant", Content: &mcp.TextContent{Text: "sampled " + in.Text}}, nil
+				},
+			}
+			// Server-initiated sampling needs a protocol before 2026-07-28.
+			cs, _ := connectWithProxyClient(t, server, switchyard.Options{Hooks: tc.hooks}, clientOpts,
+				&mcp.ClientSessionOptions{ProtocolVersion: "2025-11-25"})
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "sample"})
+			if err != nil {
+				t.Fatalf("CallTool: %v", err)
+			}
+			if res.IsError {
+				t.Fatalf("tool error: %+v", res.Content)
+			}
+			if got := resultText(t, res); got != "m: sampled q" {
+				t.Errorf("result = %q, want %q", got, "m: sampled q")
+			}
+		})
+	}
+}
