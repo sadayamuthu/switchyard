@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -161,4 +162,25 @@ func connectServer(t testing.TB, server *mcp.Server, r io.ReadCloser, w io.Write
 
 func clientImpl() *mcp.Implementation {
 	return &mcp.Implementation{Name: "testkit-client", Version: "v0.0.0"}
+}
+
+// Recorder is a switchyard.EventSink that keeps every event it receives. It
+// is safe for concurrent use.
+type Recorder struct {
+	mu     sync.Mutex
+	events []switchyard.Event
+}
+
+// Emit records e.
+func (r *Recorder) Emit(e switchyard.Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, e)
+}
+
+// Events returns a copy of the events recorded so far, in order.
+func (r *Recorder) Events() []switchyard.Event {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]switchyard.Event(nil), r.events...)
 }

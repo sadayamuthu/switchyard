@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/sadayamuthu/switchyard/jsonrpc"
 )
@@ -14,16 +15,18 @@ import (
 // the session ended while a synchronous hook was still running.
 func (c *conn) hookRequest(m *jsonrpc.Message) bool {
 	key := m.IDKey()
+	start := time.Now()
 	ctx, cancel := context.WithCancel(c.ctx)
 	e := &pendingEntry{
 		id:     m.ID,
 		req:    &Request{ID: m.ID, Method: m.Method, Params: m.Params},
 		ctx:    ctx,
 		cancel: cancel,
+		start:  start,
 	}
 	if !c.pending.add(key, e) {
 		cancel()
-		c.reply(upstreamClosed(m.ID))
+		c.replyFor(e, upstreamClosed(m.ID))
 		return true
 	}
 	if m.Method == methodToolsCall {
@@ -63,6 +66,7 @@ func (c *conn) evaluate(ctx context.Context, r *Request) Decision {
 			r.Params = d.params
 			rewritten = true
 		case d.terminal():
+			d.by = hookName(h)
 			return d
 		}
 	}
@@ -76,6 +80,7 @@ func (c *conn) evaluate(ctx context.Context, r *Request) Decision {
 // A request no longer pending (cancelled by the client, or answered because
 // upstream closed) is dropped.
 func (c *conn) dispatch(m *jsonrpc.Message, key string, e *pendingEntry, d Decision) {
+	c.emitRequest(e, d)
 	switch d.kind {
 	case kindContinue, kindContinueWith:
 		if !c.pending.markForwarded(key, e) {
@@ -90,7 +95,7 @@ func (c *conn) dispatch(m *jsonrpc.Message, key string, e *pendingEntry, d Decis
 	default:
 		if c.pending.removeIf(key, e) {
 			e.release()
-			c.reply(d.response(m.ID))
+			c.replyFor(e, d.response(m.ID))
 		}
 	}
 }
@@ -177,7 +182,10 @@ func callHook(ctx context.Context, h Hook, s *Session, r *Request) (d Decision) 
 
 // hookError blocks a request with a -32603 "hook <name> <what>" error.
 func hookError(h Hook, what string) Decision {
-	return Block(&jsonrpc.Error{Code: codeInternalError, Message: "hook " + hookName(h) + " " + what})
+	name := hookName(h)
+	d := Block(&jsonrpc.Error{Code: codeInternalError, Message: "hook " + name + " " + what})
+	d.by = name
+	return d
 }
 
 // hookName returns h.Name(), or h's type if Name panics.

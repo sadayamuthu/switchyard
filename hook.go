@@ -104,6 +104,8 @@ type Decision struct {
 	params json.RawMessage // ContinueWith
 	err    *jsonrpc.Error  // Block
 	result json.RawMessage // BlockTool, Respond
+	label  string          // Annotate
+	by     string          // name of the hook that made a terminal decision
 }
 
 // Continue passes the request on to the next hook, or upstream after the last.
@@ -147,13 +149,27 @@ func Respond(result json.RawMessage) Decision {
 // stays pending until the client cancels it or the session ends.
 func Hang() Decision { return Decision{kind: kindHang} }
 
+// Annotate returns a copy of d carrying label, a free-form tag consumers use
+// to mark why they decided: it does not change what the proxy does. The
+// decision's String, and so the decision in events, becomes "<kind>:<label>",
+// for example "hang:fault-timeout". An empty label removes the annotation.
+func (d Decision) Annotate(label string) Decision {
+	d.label = label
+	return d
+}
+
 // String returns the decision's kind: continue, continue-with, block,
-// block-tool, respond or hang.
+// block-tool, respond or hang, followed by ":" and the label if the decision
+// was annotated.
 func (d Decision) String() string {
+	name := "unknown"
 	if int(d.kind) < len(kindNames) {
-		return kindNames[d.kind]
+		name = kindNames[d.kind]
 	}
-	return "unknown"
+	if d.label != "" {
+		return name + ":" + d.label
+	}
+	return name
 }
 
 // terminal reports whether d stops hook evaluation.

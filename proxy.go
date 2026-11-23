@@ -21,17 +21,14 @@ var ErrUpstreamClosed = errors.New("switchyard: upstream closed")
 // codeInternalError is the JSON-RPC internal error code.
 const codeInternalError = -32603
 
-// EventSink receives proxy events. It is a placeholder; no events are emitted
-// yet.
-type EventSink interface{}
-
 // Options configures a Proxy.
 type Options struct {
 	// Name identifies this hop.
 	Name string
 	// Hooks run, in order, on client→server requests.
 	Hooks []Hook
-	// Sink receives events; nil disables them.
+	// Sink receives an event for every hooked request and its response; nil
+	// disables them. Nothing is emitted when there are no Hooks.
 	Sink EventSink
 	// ChainID is shared by every hop proxying the same session.
 	ChainID string
@@ -81,10 +78,14 @@ func (p *Proxy) Serve(ctx context.Context, down io.Reader, downOut io.Writer, up
 		ctx:      sessCtx,
 		session:  newSession(p.opts.ChainID),
 		hooks:    p.opts.Hooks,
+		hop:      p.opts.Name,
 		toClient: jsonrpc.NewWriter(downOut),
 		toServer: jsonrpc.NewWriter(upOut),
 		pending:  newPendingTable(),
 		aborted:  make(chan struct{}),
+	}
+	if len(p.opts.Hooks) > 0 {
+		c.sink = p.opts.Sink
 	}
 	p.pending.Store(c.pending)
 
@@ -174,6 +175,8 @@ type conn struct {
 	ctx      context.Context // cancelled when the session ends
 	session  *Session
 	hooks    []Hook
+	hop      string
+	sink     EventSink // nil unless there are hooks and a sink
 	toClient *jsonrpc.Writer
 	toServer *jsonrpc.Writer
 	pending  *pendingTable
@@ -266,7 +269,7 @@ func (c *conn) downLoop(r *jsonrpc.Reader) error {
 func (c *conn) forward(m *jsonrpc.Message, key string, e *pendingEntry) {
 	if err := c.send(c.toServer, m); err != nil && c.pending.removeIf(key, e) {
 		e.release()
-		c.reply(upstreamClosed(e.id))
+		c.replyFor(e, upstreamClosed(e.id))
 	}
 }
 
@@ -311,6 +314,8 @@ func (c *conn) upLoop(r *jsonrpc.Reader) error {
 					m = out
 				}
 				e.release()
+				c.replyFor(e, m)
+				continue
 			}
 		}
 		c.reply(m)
@@ -323,7 +328,7 @@ func (c *conn) failPending() {
 	for _, e := range c.pending.close() {
 		e.release()
 		if !e.hung {
-			c.reply(upstreamClosed(e.id))
+			c.replyFor(e, upstreamClosed(e.id))
 		}
 	}
 }

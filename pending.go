@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"time"
 )
 
 // pendingEntry is a client→server request awaiting a response: one being
@@ -17,6 +18,8 @@ type pendingEntry struct {
 	// when there are no hooks.
 	ctx    context.Context
 	cancel context.CancelFunc
+	// start is when the request arrived; zero when there are no hooks.
+	start time.Time
 	// hung is set, under the table's lock, once a hook returned Hang: the
 	// request must never be answered.
 	hung bool
