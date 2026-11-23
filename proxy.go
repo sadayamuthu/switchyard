@@ -69,7 +69,10 @@ func New(opts Options) *Proxy {
 // Serve returns ctx.Err(); ctx also cuts short any of the waits above.
 //
 // A failed write to downOut is not an error: the message is dropped, since a
-// client that has gone away is reported by down reaching EOF.
+// client that has gone away is reported by down reaching EOF. A failed write
+// to upOut answers a client request with a -32603 "upstream closed" error;
+// any other message (a notification, or a response to a server request) is
+// dropped, since a server that has gone away is reported by up ending.
 //
 // Serve returns only after both of its reading goroutines have exited, so a
 // stream that is not an io.Closer must reach EOF on its own for Serve to

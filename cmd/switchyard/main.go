@@ -2,6 +2,13 @@
 // an upstream server command, forwards every message unchanged and, with
 // --trace, writes a JSONL event for every request and response.
 //
+// Without --trace it installs no hooks and is fully transparent. --trace
+// installs a no-op hook, since events are emitted only for hooked requests,
+// and a hook changes how the proxy handles requests: tools/call requests are
+// hooked on their own goroutines, so they may be forwarded in a different
+// order than they arrived; Session.Tools tracking is enabled; and a request
+// reusing a pending id is answered with a -32600 error instead of forwarded.
+//
 // Usage:
 //
 //	switchyard [--name NAME] [--trace FILE] -- <cmd> [args...]

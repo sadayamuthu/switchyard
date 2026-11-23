@@ -1,5 +1,10 @@
 // Package jsonrpc implements newline-delimited JSON-RPC 2.0 framing that
 // preserves each message's original bytes.
+//
+// The bytes within a line are kept exactly, but the framing is normalized: a
+// Reader strips a line's "\n" or "\r\n" ending and skips blank lines, and a
+// Writer ends every message with "\n". So CRLF line endings become LF, blank
+// lines are dropped, and an unterminated final line gains a newline.
 package jsonrpc
 
 import (

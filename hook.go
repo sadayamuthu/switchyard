@@ -41,8 +41,16 @@ type Response struct {
 // OnRequest may be called concurrently and out of arrival order: use
 // Request.Seq or ToolCall.Seq for call order. All other requests are hooked
 // one at a time in arrival order, and a slow OnRequest for them delays the
-// client's later messages. ctx is cancelled when the client cancels the request or the
-// session ends.
+// client's later messages.
+//
+// ctx is cancelled when the client cancels the request or the session ends.
+// The session ends as soon as the client's input reaches EOF, even though
+// Serve still forwards in-flight requests and their responses, so a hook
+// that delays a request by waiting on ctx is cut short at client EOF.
+//
+// Only single requests are hooked. A JSON-RPC batch (a JSON array of
+// messages) is forwarded as is, and the requests inside it are never tracked
+// or hooked.
 //
 // A panic in OnRequest blocks the request with a -32603 "hook <name>
 // panicked" error.
