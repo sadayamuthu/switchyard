@@ -5,10 +5,6 @@ change with what users report. Discuss any item in an issue before starting
 on it. The reasoning behind the project, and what would make us stop, is in
 [THESIS.md](THESIS.md).
 
-The v0 implementation plan is in
-[docs/superpowers/plans/](docs/superpowers/plans/); the design is shared
-with AgentChaos.
-
 ## Now: v0.1
 
 - JSON-RPC pass-through proxy over stdio, with the transparency test suite
