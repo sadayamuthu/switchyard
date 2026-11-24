@@ -19,3 +19,7 @@ go.work.sum
 .DS_Store
 .idea/
 .vscode/
+
+# Local-only working files
+/docs/superpowers/
+/.superpowers/
