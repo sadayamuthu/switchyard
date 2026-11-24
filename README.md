@@ -70,7 +70,7 @@ agent  ──►  switchyard proxy  ──►  MCP tool server
 Each tool is its own binary built on switchyard. Tools stack by chaining:
 
 ```
-agent → agentfuse → agentlock → agenttaint → agentrewind → MCP server
+agent → agentfuse → agentlock → agenttaint → agentrewind → agentbox → MCP server
 ```
 
 The order of the chain is the order of the checks.
