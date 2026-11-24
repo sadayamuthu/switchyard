@@ -16,8 +16,8 @@ features) is most of the work, and it's the same work every time.
 
 1. **One hook shape covers all six tools.** Continue, rewrite, block,
    synthesize and hang on requests, plus observe and rewrite on responses,
-   with per-session state, is enough for AgentChaos, IntentLock, Taintline,
-   Fuse, Rewind and Airlock's proxy mode.
+   with per-session state, is enough for AgentChaos, AgentLock, AgentTaint,
+   AgentFuse, AgentRewind and AgentBox's proxy mode.
 2. **Transparency makes chaining work.** If each hop is invisible to the
    next, independent tools can be stacked in any order without knowing about
    each other.
@@ -34,8 +34,8 @@ on it.
 
 ## What success looks like
 
-- AgentChaos ships on switchyard, then at least two more tools (Fuse and
-  IntentLock first) ship without changing the hook interface in a breaking
+- AgentChaos ships on switchyard, then at least two more tools (AgentFuse and
+  AgentLock first) ship without changing the hook interface in a breaking
   way.
 - The transparency test suite passes against real MCP clients and servers.
 - A chain of four hops adds no delay a person notices.
