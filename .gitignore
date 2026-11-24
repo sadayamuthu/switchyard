@@ -20,6 +20,7 @@ go.work.sum
 .idea/
 .vscode/
 
-# Local-only working files
+# Local-only working files (never committed)
 /docs/superpowers/
 /.superpowers/
+/paper/
