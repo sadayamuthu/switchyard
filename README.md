@@ -70,7 +70,7 @@ agent  ──►  switchyard proxy  ──►  MCP tool server
 Each tool is its own binary built on switchyard. Tools stack by chaining:
 
 ```
-agent → fuse → intentlock → taintline → rewind → MCP server
+agent → agentfuse → agentlock → agenttaint → agentrewind → MCP server
 ```
 
 The order of the chain is the order of the checks.
@@ -82,11 +82,11 @@ The order of the chain is the order of the checks.
 | Tool | What it does with each call |
 |------|-----------------------------|
 | [AgentChaos](https://github.com/sadayamuthu/agentchaos) | Injects faults: timeouts, errors, partial and malformed results |
-| [IntentLock](https://github.com/sadayamuthu/intentlock) | Blocks calls outside the user's capability envelope |
-| [Taintline](https://github.com/sadayamuthu/taintline) | Blocks calls whose arguments carry untrusted data |
-| [Fuse](https://github.com/sadayamuthu/fuse) | Counts calls and trips a breaker on runaway behaviour |
-| [Rewind](https://github.com/sadayamuthu/rewind) | Records calls and the data needed to undo them |
-| [Airlock](https://github.com/sadayamuthu/airlock) | Routes risky calls into a per-call sandbox (MCP proxy mode) |
+| [AgentLock](https://github.com/sadayamuthu/agentlock) | Blocks calls outside the user's capability envelope |
+| [AgentTaint](https://github.com/sadayamuthu/agenttaint) | Blocks calls whose arguments carry untrusted data |
+| [AgentFuse](https://github.com/sadayamuthu/agentfuse) | Counts calls and trips a breaker on runaway behaviour |
+| [AgentRewind](https://github.com/sadayamuthu/agentrewind) | Records calls and the data needed to undo them |
+| [AgentBox](https://github.com/sadayamuthu/agentbox) | Routes risky calls into a per-call sandbox (MCP proxy mode) |
 
 ---
 

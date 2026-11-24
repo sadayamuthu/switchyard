@@ -20,7 +20,7 @@ not already represented. Areas where help would make the biggest difference:
 
 - the Streamable HTTP transport,
 - the transparency test suite against more MCP clients and servers,
-- approval holds for Rewind and Fuse,
+- approval holds for AgentRewind and AgentFuse,
 - per-hop latency benchmarks.
 
 If you're interested, start with an issue labelled `good first issue` or

@@ -21,7 +21,7 @@ with AgentChaos.
 
 ## Later: 1.0
 
-- Streamable HTTP transport; approval holds (for Rewind and Fuse)
+- Streamable HTTP transport; approval holds (for AgentRewind and AgentFuse)
 - **Stable interfaces.** Freeze the public formats and APIs, document a
   versioning policy, and only break them in a major release.
 
