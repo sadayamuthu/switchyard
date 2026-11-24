@@ -76,7 +76,7 @@ records the reason in the issue or pull request.
 ## Releases
 
 Releases are cut by maintainers by pushing a `vX.Y.Z` tag on `main`;
-Go consumers pick it up as a module version. There are no releases yet.
+Go consumers pick it up as a module version through proxy.golang.org.
 
 ## Code of conduct
 

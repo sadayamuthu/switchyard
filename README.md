@@ -4,7 +4,8 @@
 
 <h3>The shared MCP proxy core for OpenAstra runtime tools</h3>
 
-[![Status](https://img.shields.io/badge/status-v0%20in%20development-yellow?style=flat-square)](ROADMAP.md)
+[![Status](https://img.shields.io/badge/status-v0.1.0-yellow?style=flat-square)](ROADMAP.md)
+[![Go Reference](https://pkg.go.dev/badge/github.com/sadayamuthu/switchyard.svg)](https://pkg.go.dev/github.com/sadayamuthu/switchyard)
 [![Go 1.26+](https://img.shields.io/badge/go-1.26+-00ADD8?style=flat-square)](https://go.dev/dl/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square)](LICENSE)
 
@@ -23,8 +24,8 @@ library that sits between an AI agent and its MCP tool servers, passes every
 message through untouched, and lets a tool plug in code that runs on each
 call: observe it, delay it, block it, answer it, or rewrite the result.
 
-> **Status: v0 in development.** The library, testkit and debug binary exist;
-> nothing is released yet, and the API may still change. Part of the
+> **Status: v0.1.0, early release.** The library, testkit and debug binary
+> work and are tested, but the API may still change before 1.0. Part of the
 > [OpenAstra](https://openastra.org) research agenda; the shared foundation for
 > areas VIII (AI Runtime Security) and X (AI Resilience & Recovery).
 
@@ -91,12 +92,16 @@ The order of the chain is the order of the checks.
 
 ## Usage
 
-The repository is private for now, so tell Go not to use the public module
-proxy for it:
+Add the library to your module:
 
 ```sh
-export GOPRIVATE=github.com/sadayamuthu/switchyard
 go get github.com/sadayamuthu/switchyard@latest
+```
+
+Or install the debug binary:
+
+```sh
+go install github.com/sadayamuthu/switchyard/cmd/switchyard@latest
 ```
 
 A tool is a hook plus a few lines to run the real server behind the proxy:
